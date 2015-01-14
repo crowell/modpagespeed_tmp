@@ -19,6 +19,7 @@
 #ifndef PAGESPEED_KERNEL_BASE_MOCK_MESSAGE_HANDLER_H_
 #define PAGESPEED_KERNEL_BASE_MOCK_MESSAGE_HANDLER_H_
 
+#include <cstdarg>
 #include <map>
 
 #include "pagespeed/kernel/base/basictypes.h"
@@ -27,7 +28,6 @@
 #include "pagespeed/kernel/base/message_handler.h"
 #include "pagespeed/kernel/base/scoped_ptr.h"
 #include "pagespeed/kernel/base/string.h"
-#include "pagespeed/kernel/base/string_util.h"
 
 namespace net_instaweb {
 
@@ -36,7 +36,7 @@ class Writer;
 
 // A version of GoogleMessageHandler to use in testcases that keeps
 // track of number of messages output, to validate diagnostics
-class MockMessageHandler : public MessageHandler {
+class MockMessageHandler : public GoogleMessageHandler {
  public:
   // Takes ownership of the mutex.
   explicit MockMessageHandler(AbstractMutex* mutex);
@@ -69,14 +69,14 @@ class MockMessageHandler : public MessageHandler {
   virtual bool Dump(Writer* writer);
 
  protected:
-  virtual void MessageSImpl(MessageType type, const GoogleString& message);
+  virtual void MessageVImpl(MessageType type, const char* msg, va_list args);
 
-  virtual void FileMessageSImpl(MessageType type, const char* filename,
-                                int line, const GoogleString& message);
+  virtual void FileMessageVImpl(MessageType type, const char* filename,
+                                int line, const char* msg, va_list args);
 
  private:
   // Returns whether the message should be printed.
-  bool ShouldPrintMessage(const StringPiece& msg);
+  bool ShouldPrintMessage(const char* msg);
 
  private:
   typedef std::map<MessageType, int> MessageCountMap;

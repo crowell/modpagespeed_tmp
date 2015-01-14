@@ -23,8 +23,8 @@
 #include "net/instaweb/rewriter/public/google_font_service_input_resource.h"
 #include "net/instaweb/rewriter/public/rewrite_driver.h"
 #include "net/instaweb/rewriter/public/rewrite_options.h"
+#include "net/instaweb/util/public/string.h"
 #include "pagespeed/kernel/base/callback.h"
-#include "pagespeed/kernel/base/string.h"
 #include "pagespeed/kernel/http/google_url.h"
 
 namespace net_instaweb {
@@ -32,8 +32,6 @@ namespace net_instaweb {
 GoogleFontCssInlineFilter::GoogleFontCssInlineFilter(RewriteDriver* driver)
     : CssInlineFilter(driver) {
   set_id(RewriteOptions::kGoogleFontCssInlineId);
-  set_size_threshold_bytes(
-      driver->options()->google_font_css_inline_max_bytes());
   driver->AddResourceUrlClaimant(
       NewPermanentCallback(
           this, &GoogleFontCssInlineFilter::CheckIfFontServiceUrl));

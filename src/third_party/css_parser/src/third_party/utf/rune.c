@@ -139,8 +139,6 @@ charntorune(Rune *rune, const char *str, int length)
 		l = ((((((c << Bitx) | c1) << Bitx) | c2) << Bitx) | c3) & Rune4;
 		if (l <= Rune3)
 			goto bad;
-		if (l > Runemax)
-			goto bad;
 		*rune = l;
 		return 4;
 	}
@@ -223,8 +221,6 @@ chartorune(Rune *rune, const char *str)
 	if (c < T5) {
 		l = ((((((c << Bitx) | c1) << Bitx) | c2) << Bitx) | c3) & Rune4;
 		if (l <= Rune3)
-			goto bad;
-		if (l > Runemax)
 			goto bad;
 		*rune = l;
 		return 4;
@@ -317,8 +313,7 @@ runelen(Rune rune)
 int
 runenlen(const Rune *r, int nrune)
 {
-	int nb;
-	ulong c;	/* Rune is signed, so use unsigned for range check. */
+	int nb, c;
 
 	nb = 0;
 	while(nrune--) {
@@ -329,10 +324,8 @@ runenlen(const Rune *r, int nrune)
 			nb += 2;
 		else if (c <= Rune3)
 			nb += 3;
-		else if (c <= Runemax)
+		else /* assert(c <= Rune4) */ 
 			nb += 4;
-		else
-			nb += 3;	/* Runeerror = 0xFFFD, see runetochar */
 	}
 	return nb;
 }

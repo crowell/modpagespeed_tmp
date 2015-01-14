@@ -18,12 +18,11 @@
 
 #include "net/instaweb/config/rewrite_options_manager.h"
 
+#include "net/instaweb/http/public/request_headers.h"
 #include "net/instaweb/rewriter/public/domain_lawyer.h"
 #include "net/instaweb/rewriter/public/rewrite_options.h"
-#include "pagespeed/kernel/base/string_util.h"
-#include "pagespeed/kernel/http/google_url.h"
+#include "net/instaweb/util/public/google_url.h"
 #include "pagespeed/kernel/http/http_names.h"
-#include "pagespeed/kernel/http/request_headers.h"
 
 namespace net_instaweb {
 
@@ -36,7 +35,6 @@ void RewriteOptionsManager::GetRewriteOptions(
 
 void RewriteOptionsManager::PrepareRequest(
     const RewriteOptions* rewrite_options,
-    const RequestContextPtr& request_context,
     GoogleString* url,
     RequestHeaders* request_headers,
     BoolCallback* callback) {
@@ -54,10 +52,7 @@ void RewriteOptionsManager::PrepareRequest(
   const DomainLawyer* domain_lawyer = rewrite_options->domain_lawyer();
   bool is_proxy = false;
   GoogleString host_header;
-  if (domain_lawyer->StripProxySuffix(gurl, url, &host_header)) {
-    request_context->AddSessionAuthorizedFetchOrigin(
-        StrCat(gurl.Scheme(), "://", host_header));
-  } else if (!domain_lawyer->MapOriginUrl(gurl, url, &host_header, &is_proxy)) {
+  if (!domain_lawyer->MapOriginUrl(gurl, url, &host_header, &is_proxy)) {
     callback->Run(false);
     return;
   }

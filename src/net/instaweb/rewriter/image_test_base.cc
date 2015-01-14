@@ -19,10 +19,10 @@
 
 #include "net/instaweb/rewriter/public/image_test_base.h"
 
-#include "pagespeed/kernel/base/gtest.h"
-#include "pagespeed/kernel/base/stdio_file_system.h"
-#include "pagespeed/kernel/base/string.h"
-#include "pagespeed/kernel/base/string_util.h"
+#include "net/instaweb/util/public/gtest.h"
+#include "net/instaweb/util/public/stdio_file_system.h"
+#include "net/instaweb/util/public/string.h"
+#include "net/instaweb/util/public/string_util.h"
 
 namespace net_instaweb {
 
@@ -33,6 +33,7 @@ const char ImageTestBase::kCradle[] = "CradleAnimation.gif";
 const char ImageTestBase::kCuppa[] = "Cuppa.png";
 const char ImageTestBase::kCuppaTransparent[] = "CuppaT.png";
 const char ImageTestBase::kIronChef[] = "IronChef2.gif";
+const char ImageTestBase::kLarge[] = "Large.png";
 const char ImageTestBase::kPuzzle[] = "Puzzle.jpg";
 const char ImageTestBase::kScenery[] = "Scenery.webp";
 const char ImageTestBase::kTransparent[] = "transparent.gif";

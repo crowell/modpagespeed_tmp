@@ -24,9 +24,9 @@
 #include "net/instaweb/rewriter/public/rewrite_options.h"
 #include "net/instaweb/rewriter/public/server_context.h"
 #include "net/instaweb/util/public/fallback_property_page.h"
-#include "pagespeed/kernel/base/message_handler.h"
-#include "pagespeed/kernel/base/scoped_ptr.h"
-#include "pagespeed/kernel/base/string.h"
+#include "net/instaweb/util/public/message_handler.h"
+#include "net/instaweb/util/public/scoped_ptr.h"
+#include "net/instaweb/util/public/string.h"
 
 namespace net_instaweb {
 
@@ -56,7 +56,7 @@ void FlushEarlyInfoFinder::UpdateFlushEarlyInfoInDriver(RewriteDriver* driver) {
   if (decode_status == kPropertyCacheDecodeOk) {
     driver->set_flush_early_render_info(flush_early_render_info.release());
   } else if (decode_status == kPropertyCacheDecodeParseError) {
-    driver->message_handler()->MessageS(kError, "Parsing value from cache "
+    driver->message_handler()->Message(kError, "Parsing value from cache "
                                         "into FlushEarlyRenderInfo failed.");
   }
 }

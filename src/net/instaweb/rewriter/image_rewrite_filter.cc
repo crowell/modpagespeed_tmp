@@ -22,20 +22,23 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 
-#include <algorithm>
-#include <cstdarg>
+#include <algorithm>                    // for min
 #include <memory>
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
+#include "base/logging.h"               // for CHECK, etc
+#include "net/instaweb/htmlparse/public/html_element.h"
+#include "net/instaweb/htmlparse/public/html_name.h"
+#include "net/instaweb/http/public/content_type.h"
 #include "net/instaweb/http/public/log_record.h"
 #include "net/instaweb/http/public/logging_proto.h"
 #include "net/instaweb/http/public/logging_proto_impl.h"
 #include "net/instaweb/http/public/request_context.h"
+#include "net/instaweb/http/public/semantic_type.h"
 #include "net/instaweb/rewriter/cached_result.pb.h"
-#include "net/instaweb/rewriter/public/critical_images_beacon_filter.h"
 #include "net/instaweb/rewriter/public/critical_images_finder.h"
+#include "net/instaweb/rewriter/public/critical_images_beacon_filter.h"
 #include "net/instaweb/rewriter/public/css_url_encoder.h"
 #include "net/instaweb/rewriter/public/css_util.h"
 #include "net/instaweb/rewriter/public/image.h"
@@ -44,35 +47,31 @@
 #include "net/instaweb/rewriter/public/output_resource_kind.h"
 #include "net/instaweb/rewriter/public/request_properties.h"
 #include "net/instaweb/rewriter/public/resource.h"
+#include "net/instaweb/rewriter/public/server_context.h"
 #include "net/instaweb/rewriter/public/resource_slot.h"
 #include "net/instaweb/rewriter/public/resource_tag_scanner.h"
 #include "net/instaweb/rewriter/public/rewrite_context.h"
 #include "net/instaweb/rewriter/public/rewrite_driver.h"
 #include "net/instaweb/rewriter/public/rewrite_options.h"
-#include "net/instaweb/rewriter/public/server_context.h"
 #include "net/instaweb/rewriter/public/single_rewrite_context.h"
+#include "net/instaweb/util/enums.pb.h"
+#include "net/instaweb/util/public/basictypes.h"
+#include "net/instaweb/util/public/data_url.h"
+#include "net/instaweb/util/public/google_url.h"
+#include "net/instaweb/util/public/message_handler.h"
 #include "net/instaweb/util/public/property_cache.h"
-#include "pagespeed/kernel/base/basictypes.h"
-#include "pagespeed/kernel/base/escaping.h"
-#include "pagespeed/kernel/base/message_handler.h"
-#include "pagespeed/kernel/base/scoped_ptr.h"
-#include "pagespeed/kernel/base/statistics.h"
-#include "pagespeed/kernel/base/string.h"
-#include "pagespeed/kernel/base/string_util.h"
-#include "pagespeed/kernel/base/timer.h"
-#include "pagespeed/kernel/html/html_element.h"
-#include "pagespeed/kernel/html/html_name.h"
-#include "pagespeed/kernel/html/html_node.h"
-#include "pagespeed/kernel/http/content_type.h"
-#include "pagespeed/kernel/http/data_url.h"
-#include "pagespeed/kernel/http/google_url.h"
-#include "pagespeed/kernel/http/semantic_type.h"
+#include "net/instaweb/util/public/scoped_ptr.h"
+#include "net/instaweb/util/public/statistics.h"
+#include "net/instaweb/util/public/statistics_work_bound.h"
+#include "net/instaweb/util/public/string.h"
+#include "net/instaweb/util/public/string_util.h"
+#include "net/instaweb/util/public/timer.h"
+#include "net/instaweb/util/public/work_bound.h"
 #include "pagespeed/kernel/util/simple_random.h"
-#include "pagespeed/kernel/util/statistics_work_bound.h"
-#include "pagespeed/kernel/util/work_bound.h"
-#include "pagespeed/opt/logging/enums.pb.h"
 
 namespace net_instaweb {
+
+class UrlSegmentEncoder;
 
 namespace {
 
@@ -457,17 +456,6 @@ void ImageRewriteFilter::Context::Render() {
       rewrote_url = filter_->FinishRewriteImageUrl(
           result, resource_context(), html_slot->element(),
           html_slot->attribute(), html_index_, html_slot, &inline_result);
-
-      // Register image metrics for images inside HTML here. We don't deal with
-      // images inside CSS here since we might not even run --- our work may get
-      // cached at CSS filter level.
-      if (Driver()->options()->Enabled(
-              RewriteOptions::kExperimentCollectMobImageInfo)) {
-        AssociatedImageInfo aii;
-        if (ExtractAssociatedImageInfo(result, this, &aii)) {
-          filter_->RegisterImageInfo(aii);
-        }
-      }
     }
 
     if (Driver()->options()->Enabled(RewriteOptions::kInlineImages)) {
@@ -505,8 +493,7 @@ void ImageRewriteFilter::Context::EncodeUserAgentIntoResourceContext(
 
 ImageRewriteFilter::ImageRewriteFilter(RewriteDriver* driver)
     : RewriteFilter(driver),
-      image_counter_(0),
-      saw_end_document_(false) {
+      image_counter_(0) {
   Statistics* stats = server_context()->statistics();
   image_rewrites_ = stats->GetVariable(kImageRewrites);
   image_resized_using_rendered_dimensions_ =
@@ -677,46 +664,9 @@ void ImageRewriteFilter::AddRelatedOptions(StringPieceVector* target) {
 
 void ImageRewriteFilter::StartDocumentImpl() {
   image_counter_ = 0;
-  saw_end_document_ = false;
   inlinable_urls_.clear();
   driver()->log_record()->LogRewriterHtmlStatus(
       RewriteOptions::kImageCompressionId, RewriterHtmlApplication::ACTIVE);
-}
-
-void ImageRewriteFilter::EndDocument() {
-  saw_end_document_  = true;
-}
-
-void ImageRewriteFilter::RenderDone() {
-  // Only care about the very end, not every flush window; framework orders
-  // EndDocument before the last RenderDone (and after previous ones) so we
-  // use EndDocument() having been called to distinguish the last flush window
-  // from previous ones.
-  if (!saw_end_document_) {
-    return;
-  }
-  if (!image_info_.empty()) {
-    GoogleString code =
-        "psMobStaticImageInfo = {";
-    for (AssociatedImageInfoMap::iterator i = image_info_.begin(),
-                                          e = image_info_.end();
-         i != e; ++i) {
-      const AssociatedImageInfo& image_info = i->second;
-      EscapeToJsStringLiteral(image_info.url(), true /* want quotes */,
-                              &code);
-      StrAppend(&code, ":{");
-      StrAppend(&code, "w:",
-                IntegerToString(image_info.dimensions().width()), ",");
-      StrAppend(&code, "h:",
-                IntegerToString(image_info.dimensions().height()), "},");
-    }
-    StrAppend(&code, "}");
-    HtmlElement* script = driver()->NewElement(NULL, HtmlName::kScript);
-    HtmlCharactersNode* chars = driver()->NewCharactersNode(script, code);
-    InsertNodeAtBodyEnd(script);
-    driver()->AppendChild(script, chars);
-  }
-  image_info_.clear();
 }
 
 // Allocate and initialize CompressionOptions object based on RewriteOptions and
@@ -897,19 +847,6 @@ int64 GetCurrentCpuTimeMs(Timer* timer) {
 
 }  // namespace
 
-// Format as InfoAt and using TracePrintf.
-// TODO(jmaessen): Avoid formatting if neither applies.
-void ImageRewriteFilter::InfoAndTrace(
-    Context* rewrite_context, const char* format, ...) {
-  va_list args;
-  va_start(args, format);
-  GoogleString message;
-  StringAppendV(&message, format, args);
-  driver()->InfoAt(rewrite_context, "%s", message.c_str());
-  driver()->TraceString(message);
-  va_end(args);
-}
-
 RewriteResult ImageRewriteFilter::RewriteLoadedResourceImpl(
       Context* rewrite_context, const ResourcePtr& input_resource,
       const OutputResourcePtr& result) {
@@ -920,7 +857,7 @@ RewriteResult ImageRewriteFilter::RewriteLoadedResourceImpl(
   ResourceContext resource_context;
   const RewriteOptions* options = driver()->options();
 
-  resource_context = *rewrite_context->resource_context();
+  resource_context.CopyFrom(*rewrite_context->resource_context());
 
   if (!encoder_.Decode(result->name(),
                        &urls, &resource_context, message_handler)) {
@@ -1045,35 +982,39 @@ RewriteResult ImageRewriteFilter::RewriteLoadedResourceImpl(
         } else {
           // Server fails to write merged files.
           image_rewrites_dropped_server_write_fail_->Add(1);
-          InfoAndTrace(
-              rewrite_context,
-              "Server fails writing image content for `%s'; rewriting dropped.",
-              input_resource->url().c_str());
+          GoogleString msg(StringPrintf(
+              "Server fails writing image content for `%s'; "
+              "rewriting dropped.",
+              input_resource->url().c_str()));
+          driver()->InfoAt(rewrite_context, "%s", msg.c_str());
+          rewrite_context->TracePrintf("%s", msg.c_str());
         }
       } else if (is_resized) {
         // Eliminate any image dimensions from a resize operation that
         // succeeded, but yielded overly-large output.
         image_rewrites_dropped_nosaving_resize_->Add(1);
-        InfoAndTrace(
-            rewrite_context,
+        GoogleString msg(StringPrintf(
             "Shrink of image `%s' (%u -> %u bytes) doesn't save space; "
             "dropped.",
             input_resource->url().c_str(),
             static_cast<unsigned>(image->input_size()),
-            static_cast<unsigned>(image->output_size()));
+            static_cast<unsigned>(image->output_size())));
+        driver()->InfoAt(rewrite_context, "%s", msg.c_str());
+        rewrite_context->TracePrintf("%s", msg.c_str());
         ImageDim* dims = cached->mutable_image_file_dims();
         dims->clear_width();
         dims->clear_height();
       } else if (options->ImageOptimizationEnabled()) {
         // Fails due to overly-large output without resize.
         image_rewrites_dropped_nosaving_noresize_->Add(1);
-        InfoAndTrace(
-            rewrite_context,
+        GoogleString msg(StringPrintf(
             "Recompressing image `%s' (%u -> %u bytes) doesn't save space; "
             "dropped.",
             input_resource->url().c_str(),
             static_cast<unsigned>(image->input_size()),
-            static_cast<unsigned>(image->output_size()));
+            static_cast<unsigned>(image->output_size())));
+        driver()->InfoAt(rewrite_context, "%s", msg.c_str());
+        rewrite_context->TracePrintf("%s", msg.c_str());
       }
     }
     cached->set_minimal_webp_support(image->MinimalWebpSupport());
@@ -1166,9 +1107,10 @@ RewriteResult ImageRewriteFilter::RewriteLoadedResourceImpl(
     image_rewrite_latency_total_ms_->Add(latency_ms);
   } else {
     image_rewrites_dropped_due_to_load_->IncBy(1);
-    InfoAndTrace(rewrite_context,
-                 "%s: Too busy to rewrite image.",
-                 input_resource->url().c_str());
+    GoogleString msg(StringPrintf("%s: Too busy to rewrite image.",
+                                  input_resource->url().c_str()));
+    rewrite_context->TracePrintf("%s", msg.c_str());
+    message_handler->Message(kInfo, "%s", msg.c_str());
   }
 
   // All other conditions were updated in other code paths above.
@@ -1428,10 +1370,6 @@ void SetHeightFromAttribute(const HtmlElement* element, ImageDim* page_dim) {
 
 void DeleteMatchingImageDimsAfterInline(
     const CachedResult* cached, HtmlElement* element) {
-  // Never strip width= or height= attributes from non-img elements.
-  if (element->keyword() != HtmlName::kImg) {
-    return;
-  }
   // We used to take the absence of desired_image_dims here as license to delete
   // dimensions.  That was incorrect, as sometimes there were dimensions in the
   // page but the image was being enlarged on page and we can't strip the
@@ -1927,12 +1865,12 @@ RewriteContext* ImageRewriteFilter::MakeNestedRewriteContextForCss(
   ResourceContext* cloned_context = new ResourceContext;
   const ResourceContext* parent_context = parent->resource_context();
   if (parent_context != NULL) {
-    *cloned_context = *parent_context;
+    cloned_context->CopyFrom(*parent_context);
   }
 
   if (cloned_context->libwebp_level() != ResourceContext::LIBWEBP_NONE) {
-    // Assignment from parent_context is not sufficient because parent_context
-    // checks only UserAgentSupportsWebp when creating the context, but while
+    // CopyFrom parent_context is not sufficient because parent_context checks
+    // only UserAgentSupportsWebp when creating the context, but while
     // rewriting the image, rewrite options should also be checked.
     ImageUrlEncoder::SetLibWebpLevel(
         *driver()->options(), *driver()->request_properties(),
@@ -1954,7 +1892,7 @@ RewriteContext* ImageRewriteFilter::MakeNestedRewriteContext(
   DCHECK(parent != NULL);
   DCHECK(parent->resource_context() != NULL);
   if (parent != NULL && parent->resource_context() != NULL) {
-    *resource_context = *(parent->resource_context());
+    resource_context->CopyFrom(*(parent->resource_context()));
   }
   Context* context = new Context(
       0 /*No Css inling */, this, NULL /* driver */, parent, resource_context,
@@ -2022,37 +1960,6 @@ void ImageRewriteFilter::DisableRelatedFilters(RewriteOptions* options) {
   for (int i = 0; i < kRelatedFiltersSize; ++i) {
     options->DisableFilter(kRelatedFilters[i]);
   }
-}
-
-void ImageRewriteFilter::RegisterImageInfo(
-    const AssociatedImageInfo& image_info) {
-  if (!driver()->options()->Enabled(
-          RewriteOptions::kExperimentCollectMobImageInfo)) {
-    return;
-  }
-
-  image_info_[image_info.url()] = image_info;
-}
-
-bool ImageRewriteFilter::ExtractAssociatedImageInfo(
-    const CachedResult* result, RewriteContext* context,
-    AssociatedImageInfo* out) {
-  bool ret = false;
-  if (result->has_image_file_dims()) {
-    if (result->url().empty()) {
-      if (context->num_slots() == 1) {
-        out->set_url(context->slot(0)->resource()->url());
-        ret = true;
-      }
-    } else {
-      out->set_url(result->url());
-      ret = true;
-    }
-  }
-  if (ret) {
-    *out->mutable_dimensions() = result->image_file_dims();
-  }
-  return ret;
 }
 
 }  // namespace net_instaweb

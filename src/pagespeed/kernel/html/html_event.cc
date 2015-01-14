@@ -28,7 +28,7 @@ HtmlEvent::~HtmlEvent() {
 }
 
 void HtmlEvent::DebugPrint() {
-  puts(ToString().c_str());
+  fprintf(stdout, "%s\n", ToString().c_str());
 }
 
 }  // namespace net_instaweb

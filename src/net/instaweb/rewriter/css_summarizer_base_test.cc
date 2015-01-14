@@ -18,20 +18,20 @@
 
 #include "net/instaweb/rewriter/public/css_summarizer_base.h"
 
+#include "net/instaweb/htmlparse/public/html_name.h"
+#include "net/instaweb/htmlparse/public/html_node.h"
+#include "net/instaweb/htmlparse/public/html_parse_test_base.h"
+#include "net/instaweb/http/public/content_type.h"
+#include "net/instaweb/http/public/semantic_type.h"
 #include "net/instaweb/rewriter/public/css_minify.h"
+#include "net/instaweb/rewriter/public/rewrite_test_base.h"
 #include "net/instaweb/rewriter/public/rewrite_driver.h"
 #include "net/instaweb/rewriter/public/rewrite_options.h"
-#include "net/instaweb/rewriter/public/rewrite_test_base.h"
 #include "net/instaweb/rewriter/public/server_context.h"
-#include "pagespeed/kernel/base/gtest.h"
-#include "pagespeed/kernel/base/string.h"
-#include "pagespeed/kernel/base/string_util.h"
-#include "pagespeed/kernel/base/string_writer.h"
-#include "pagespeed/kernel/html/html_name.h"
-#include "pagespeed/kernel/html/html_node.h"
-#include "pagespeed/kernel/html/html_parse_test_base.h"
-#include "pagespeed/kernel/http/content_type.h"
-#include "pagespeed/kernel/http/semantic_type.h"
+#include "net/instaweb/util/public/gtest.h"
+#include "net/instaweb/util/public/string.h"
+#include "net/instaweb/util/public/string_util.h"
+#include "net/instaweb/util/public/string_writer.h"
 
 namespace net_instaweb {
 
@@ -288,7 +288,7 @@ TEST_F(CssSummarizerBaseTest, RenderSummary) {
   filter_->set_render_summaries_in_place(true);
   Parse("link", StrCat(CssLinkHref("a.css"),
                        "<style>* { background: blue; }</style>"));
-  EXPECT_STREQ("<html>\n<style>div{displa</style><style>*{backgrou</style>"
+  EXPECT_STREQ("<html>\n<style>div{displa</style><style>*{backgrou</style>\n"
                "<!--OK/div{displa/rel=stylesheet|"
                    "OK/*{backgrou|--></html>", output_buffer_);
 }
@@ -337,7 +337,7 @@ TEST_F(CssSummarizerBaseTest, WillNotRenderSummaryWait) {
   EXPECT_STREQ(StrCat("<html>\n",
                       "<!--WillNotRender:0 --- Pending-->",
                       CssLinkHref("a.css"),
-                      "</html>"),
+                      "\n</html>"),
                output_buffer_);
   CallFetcherCallbacks();
 }
@@ -348,7 +348,7 @@ TEST_F(CssSummarizerBaseTest, Base) {
       StrCat(CssLinkHref("a.css"), "<style>*{display:block;}</style>");
   Parse("base", css);
   EXPECT_STREQ(
-      StrCat("<html>\n", css,
+      StrCat("<html>\n", css, "\n",
              StrCat("<!--OK/div{displa/rel=stylesheet/base=",
                     kTestDomain, "a.css"),
              StrCat("|OK/*{display:/base=", kTestDomain, "base.html|-->"),
@@ -384,7 +384,7 @@ TEST_F(CssSummarizerBaseTest, IgnoreNonSummarizable) {
                "<style pagespeed_no_defer>div {display:none;}</style>"
                "<style scoped>p {display:none;}</style>"
                "<link rel=stylesheet href='b.css' pagespeed_no_defer>"
-               "<style>div{displa</style>"
+               "<style>div{displa</style>\n"
                "<!--OK/*{backgrou|OK/div{displa/rel=stylesheet|--></html>",
                output_buffer_);
 }
@@ -406,7 +406,7 @@ TEST_F(CssSummarizerBaseWithCombinerFilterTest, Interaction) {
 
   Parse("with_combine", StrCat(CssLinkHref("a.css"), CssLinkHref("a2.css")));
   EXPECT_EQ(StrCat("<html>\n", CssLinkHref(combined_url),
-                   "<!--OK/div{displa/rel=stylesheet|"
+                   "\n<!--OK/div{displa/rel=stylesheet|"
                    "SlotRemoved//rel=stylesheet|--></html>"),
             output_buffer_);
 }
@@ -450,7 +450,7 @@ TEST_F(CssSummarizerBaseWithCombinerFilterTest, BaseAcrossPaths) {
   Parse("base_accross_paths",
         StrCat(CssLinkHref("b/a2.css"), CssLinkHref("a.css")));
   EXPECT_EQ(StrCat(
-      "<html>\n", CssLinkHref(combined_url),
+      "<html>\n", CssLinkHref(combined_url), "\n"
       "<!--OK/span{displ/rel=stylesheet/base=", kTestDomain, combined_url,
       "|SlotRemoved//rel=stylesheet/base=", kTestDomain, "a.css"
       "|--></html>"),

@@ -24,18 +24,18 @@
 #include <utility>
 
 #include "base/logging.h"
+#include "net/instaweb/http/public/request_headers.h"
 #include "net/instaweb/public/global_constants.h"
 #include "net/instaweb/rewriter/critical_keys.pb.h"
 #include "net/instaweb/rewriter/public/property_cache_util.h"
 #include "net/instaweb/rewriter/public/rewrite_driver.h"
 #include "net/instaweb/rewriter/public/rewrite_options.h"
+#include "net/instaweb/util/public/message_handler.h"
 #include "net/instaweb/util/public/property_cache.h"
+#include "net/instaweb/util/public/string_util.h"
+#include "net/instaweb/util/public/timer.h"
 #include "pagespeed/kernel/base/base64_util.h"
-#include "pagespeed/kernel/base/message_handler.h"
 #include "pagespeed/kernel/base/scoped_ptr.h"
-#include "pagespeed/kernel/base/string_util.h"
-#include "pagespeed/kernel/base/timer.h"
-#include "pagespeed/kernel/http/request_headers.h"
 #include "pagespeed/kernel/util/nonce_generator.h"
 
 namespace net_instaweb {
@@ -314,11 +314,11 @@ void WriteCriticalKeysToPropertyCache(
       *critical_keys, cohort, property_name, false /* write_cohort */, page);
   switch (result) {
     case kPropertyCacheUpdateNotFound:
-      message_handler->MessageS(kWarning,
-                                "Unable to get Critical keys set for update.");
+      message_handler->Message(kWarning,
+                               "Unable to get Critical keys set for update.");
       break;
     case kPropertyCacheUpdateEncodeError:
-      message_handler->MessageS(kWarning, "Trouble marshaling CriticalKeys!?");
+      message_handler->Message(kWarning, "Trouble marshaling CriticalKeys!?");
       break;
     case kPropertyCacheUpdateOk:
       // Nothing more to do.
@@ -360,8 +360,7 @@ void PrepareForBeaconInsertionHelper(CriticalKeys* proto,
         "You seem to have downstream caching configured on your server. "
         "DownstreamCacheRebeaconingKey should also be set for this to work "
         "correctly. Refer to "
-        "https://developers.google.com/speed/pagespeed/module/"
-        "downstream-caching#beaconing "
+        "https://developers.google.com/speed/pagespeed/module/downstream-caching#beaconing "
         "for more details.");
   }
   // We need to rebeacon so update the timestamp for the next time to

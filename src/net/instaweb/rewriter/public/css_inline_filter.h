@@ -21,21 +21,21 @@
 
 #include <cstddef>
 
-#include "net/instaweb/rewriter/cached_result.pb.h"
+#include "net/instaweb/http/public/semantic_type.h"
 #include "net/instaweb/rewriter/public/common_filter.h"
 #include "net/instaweb/rewriter/public/css_tag_scanner.h"
 #include "net/instaweb/rewriter/public/resource.h"
 #include "net/instaweb/rewriter/public/rewrite_driver.h"
 #include "net/instaweb/rewriter/public/rewrite_options.h"
-#include "pagespeed/kernel/base/basictypes.h"
-#include "pagespeed/kernel/base/string.h"
-#include "pagespeed/kernel/base/string_util.h"
-#include "pagespeed/kernel/html/html_element.h"
-#include "pagespeed/kernel/http/google_url.h"
-#include "pagespeed/kernel/http/semantic_type.h"
+#include "net/instaweb/util/public/basictypes.h"
+#include "net/instaweb/util/public/string.h"
+#include "net/instaweb/util/public/string_util.h"
 
 namespace net_instaweb {
 
+class CachedResult;
+class GoogleUrl;
+class HtmlElement;
 class Statistics;
 class Variable;
 
@@ -75,8 +75,6 @@ class CssInlineFilter : public CommonFilter {
   // for semantics.
   virtual ResourcePtr CreateResource(const char* url, bool* is_authorized);
 
-  void set_size_threshold_bytes(size_t size) { size_threshold_bytes_ = size; }
-
  private:
   class Context;
   friend class Context;
@@ -89,7 +87,7 @@ class CssInlineFilter : public CommonFilter {
                     HtmlElement* element);
 
   const char* id_;  // filter ID code.
-  size_t size_threshold_bytes_;
+  const size_t size_threshold_bytes_;
 
   GoogleString domain_;
   CssTagScanner css_tag_scanner_;

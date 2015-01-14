@@ -26,33 +26,32 @@
 #include "net/instaweb/http/public/cache_url_async_fetcher.h"
 #include "net/instaweb/http/public/log_record.h"
 #include "net/instaweb/http/public/logging_proto_impl.h"
+#include "net/instaweb/http/public/meta_data.h"
 #include "net/instaweb/http/public/request_context.h"
+#include "net/instaweb/http/public/request_headers.h"
+#include "net/instaweb/http/public/response_headers.h"
 #include "net/instaweb/public/global_constants.h"
 #include "net/instaweb/rewriter/public/blink_util.h"
 #include "net/instaweb/rewriter/public/experiment_matcher.h"
 #include "net/instaweb/rewriter/public/experiment_util.h"
+#include "net/instaweb/rewriter/public/server_context.h"
 #include "net/instaweb/rewriter/public/rewrite_driver.h"
 #include "net/instaweb/rewriter/public/rewrite_options.h"
-#include "net/instaweb/rewriter/public/server_context.h"
 #include "net/instaweb/rewriter/public/url_namer.h"
+#include "net/instaweb/util/public/abstract_mutex.h"
+#include "net/instaweb/util/public/basictypes.h"
 #include "net/instaweb/util/public/fallback_property_page.h"
-#include "pagespeed/kernel/base/abstract_mutex.h"
-#include "pagespeed/kernel/base/basictypes.h"
+#include "net/instaweb/util/public/function.h"
+#include "net/instaweb/util/public/google_url.h"
+#include "net/instaweb/util/public/queued_alarm.h"
+#include "net/instaweb/util/public/ref_counted_ptr.h"
+#include "net/instaweb/util/public/request_trace.h"
+#include "net/instaweb/util/public/stl_util.h"
+#include "net/instaweb/util/public/thread_synchronizer.h"
+#include "net/instaweb/util/public/thread_system.h"
+#include "net/instaweb/util/public/timer.h"
 #include "pagespeed/kernel/base/callback.h"
-#include "pagespeed/kernel/base/function.h"
-#include "pagespeed/kernel/base/ref_counted_ptr.h"
-#include "pagespeed/kernel/base/request_trace.h"
-#include "pagespeed/kernel/base/stl_util.h"
-#include "pagespeed/kernel/base/thread_system.h"
-#include "pagespeed/kernel/base/timer.h"
 #include "pagespeed/kernel/http/content_type.h"
-#include "pagespeed/kernel/http/google_url.h"
-#include "pagespeed/kernel/http/http_names.h"
-#include "pagespeed/kernel/http/request_headers.h"
-#include "pagespeed/kernel/http/response_headers.h"
-#include "pagespeed/kernel/thread/queued_alarm.h"
-#include "pagespeed/kernel/thread/thread_synchronizer.h"
-#include "pagespeed/opt/logging/request_timing_info.h"
 
 namespace net_instaweb {
 
@@ -746,7 +745,6 @@ void ProxyFetch::SetupForHtml() {
 void ProxyFetch::StartFetch() {
   factory_->server_context_->rewrite_options_manager()->PrepareRequest(
       Options(),
-      request_context(),
       &url_,
       request_headers(),
       NewCallback(this, &ProxyFetch::DoFetch));
@@ -835,7 +833,7 @@ void ProxyFetch::ScheduleQueueExecutionIfNeeded() {
 
 void ProxyFetch::PropertyCacheComplete(
     ProxyFetchPropertyCallbackCollector* callback_collector) {
-  driver_->TraceLiteral("PropertyCache lookup completed");
+  driver_->TracePrintf("PropertyCache lookup completed");
   ScopedMutex lock(mutex_.get());
 
   if (driver_ == NULL) {
@@ -1298,7 +1296,7 @@ ProxyFetchPropertyCallbackCollector*
   RequestContextPtr request_ctx = async_fetch->request_context();
   DCHECK(request_ctx.get() != NULL);
   if (request_ctx->root_trace_context() != NULL) {
-    request_ctx->root_trace_context()->TraceLiteral(
+    request_ctx->root_trace_context()->TracePrintf(
         "PropertyCache lookup start");
   }
   StringPiece user_agent =

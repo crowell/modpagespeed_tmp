@@ -23,26 +23,25 @@
 #include <utility>
 
 #include "base/logging.h"
+#include "net/instaweb/http/public/request_headers.h"
+#include "net/instaweb/http/public/semantic_type.h"
 #include "net/instaweb/rewriter/public/domain_lawyer.h"
 #include "net/instaweb/rewriter/public/experiment_util.h"
 #include "net/instaweb/rewriter/public/file_load_policy.h"
-#include "pagespeed/kernel/base/abstract_mutex.h"
-#include "pagespeed/kernel/base/basictypes.h"
-#include "pagespeed/kernel/base/dynamic_annotations.h"  // RunningOnValgrind
-#include "pagespeed/kernel/base/hasher.h"
-#include "pagespeed/kernel/base/message_handler.h"
-#include "pagespeed/kernel/base/null_message_handler.h"
-#include "pagespeed/kernel/base/null_rw_lock.h"
+#include "net/instaweb/util/public/abstract_mutex.h"
+#include "net/instaweb/util/public/basictypes.h"
+#include "net/instaweb/util/public/dynamic_annotations.h"  // RunningOnValgrind
+#include "net/instaweb/util/public/google_url.h"
+#include "net/instaweb/util/public/hasher.h"
+#include "net/instaweb/util/public/message_handler.h"
+#include "net/instaweb/util/public/null_message_handler.h"
+#include "net/instaweb/util/public/null_rw_lock.h"
+#include "net/instaweb/util/public/stl_util.h"
+#include "net/instaweb/util/public/timer.h"
 #include "pagespeed/kernel/base/rde_hash_map.h"
-#include "pagespeed/kernel/base/stl_util.h"
 #include "pagespeed/kernel/base/time_util.h"
-#include "pagespeed/kernel/base/timer.h"
 #include "pagespeed/kernel/cache/purge_set.h"
-#include "pagespeed/kernel/http/google_url.h"
 #include "pagespeed/kernel/http/http_options.h"
-#include "pagespeed/kernel/http/request_headers.h"
-#include "pagespeed/kernel/http/semantic_type.h"
-#include "pagespeed/kernel/http/user_agent_matcher.h"
 
 namespace net_instaweb {
 
@@ -60,7 +59,6 @@ const char RewriteOptions::kAllowLoggingUrlsInLogRecord[] =
     "AllowLoggingUrlsInLogRecord";
 const char RewriteOptions::kAllowOptionsToBeSetByCookies[] =
     "AllowOptionsToBeSetByCookies";
-const char RewriteOptions::kAlwaysMobilize[] = "AlwaysMobilize";
 const char RewriteOptions::kAlwaysRewriteCss[] = "AlwaysRewriteCss";
 const char RewriteOptions::kAnalyticsID[] = "AnalyticsID";
 const char RewriteOptions::kAvoidRenamingIntrospectiveJavascript[] =
@@ -138,8 +136,6 @@ const char RewriteOptions::kFlushMoreResourcesEarlyIfTimePermits[] =
     "FlushMoreResourcesEarlyIfTimePermits";
 const char RewriteOptions::kForbidAllDisabledFilters[] =
     "ForbidAllDisabledFilters";
-const char RewriteOptions::kGoogleFontCssInlineMaxBytes[] =
-    "GoogleFontCssInlineMaxBytes";
 const char RewriteOptions::kHideRefererUsingMeta[] = "HideRefererUsingMeta";
 const char RewriteOptions::kIdleFlushTimeMs[] = "IdleFlushTimeMs";
 const char RewriteOptions::kImageInlineMaxBytes[] = "ImageInlineMaxBytes";
@@ -194,7 +190,6 @@ const char RewriteOptions::kLazyloadImagesAfterOnload[] =
 const char RewriteOptions::kLazyloadImagesBlankUrl[] = "LazyloadImagesBlankUrl";
 const char RewriteOptions::kLoadFromFileCacheTtlMs[] = "LoadFromFileCacheTtlMs";
 const char RewriteOptions::kLogBackgroundRewrite[] = "LogBackgroundRewrite";
-const char RewriteOptions::kLogMobilizationSamples[] = "LogMobilizationSamples";
 const char RewriteOptions::kLogRewriteTiming[] = "LogRewriteTiming";
 const char RewriteOptions::kLogUrlIndices[] = "LogUrlIndices";
 const char RewriteOptions::kLowercaseHtmlNames[] = "LowercaseHtmlNames";
@@ -225,10 +220,6 @@ const char RewriteOptions::kMinImageSizeLowResolutionBytes[] =
     "MinImageSizeLowResolutionBytes";
 const char RewriteOptions::kMinResourceCacheTimeToRewriteMs[] =
     "MinResourceCacheTimeToRewriteMs";
-const char RewriteOptions::kMobCallButton[] = "MobCallButton";
-const char RewriteOptions::kMobLayout[] = "MobLayout";
-const char RewriteOptions::kMobNav[] = "MobNav";
-const char RewriteOptions::kMobStatic[] = "MobStatic";
 const char RewriteOptions::kModifyCachingHeaders[] = "ModifyCachingHeaders";
 const char RewriteOptions::kNoTransformOptimizedImages[] =
     "NoTransformOptimizedImages";
@@ -333,7 +324,6 @@ const char RewriteOptions::kLruCacheKbPerProcess[] = "LRUCacheKbPerProcess";
 const char RewriteOptions::kMemcachedServers[] = "MemcachedServers";
 const char RewriteOptions::kMemcachedThreads[] = "MemcachedThreads";
 const char RewriteOptions::kMemcachedTimeoutUs[] = "MemcachedTimeoutUs";
-const char RewriteOptions::kProxySuffix[] = "ProxySuffix";
 const char RewriteOptions::kRateLimitBackgroundFetches[] =
     "RateLimitBackgroundFetches";
 const char RewriteOptions::kRequestOptionOverride[] = "RequestOptionOverride";
@@ -414,8 +404,6 @@ const int64 RewriteOptions::kDefaultCssInlineMaxBytes = 2048;
 const int64 RewriteOptions::kDefaultCssFlattenMaxBytes = 1024000;
 const int64 RewriteOptions::kDefaultCssImageInlineMaxBytes = 0;
 const int64 RewriteOptions::kDefaultCssOutlineMinBytes = 3000;
-// 3K is bigger than Roboto loader for Chrome (2.2k)
-const int64 RewriteOptions::kDefaultGoogleFontCssInlineMaxBytes = 3 * 1024;
 const int64 RewriteOptions::kDefaultImageInlineMaxBytes = 3072;
 const int64 RewriteOptions::kDefaultJsInlineMaxBytes = 2048;
 const int64 RewriteOptions::kDefaultJsOutlineMinBytes = 3000;
@@ -670,7 +658,6 @@ const RewriteOptions::Filter kDangerousFilterSet[] = {
   RewriteOptions::kDeterministicJs,   // used for measurement
   RewriteOptions::kDisableJavascript,
   RewriteOptions::kDivStructure,
-  RewriteOptions::kExperimentCollectMobImageInfo,
   RewriteOptions::kExperimentSpdy,
   RewriteOptions::kExplicitCloseTags,
   RewriteOptions::kFixReflows,
@@ -717,8 +704,6 @@ const RewriteOptions::FilterEnumToIdAndNameEntry
     "ab", "Add Base Tag" },
   { RewriteOptions::kAddHead,
     "ah", "Add Head" },
-  { RewriteOptions::kAddIds,
-    "ad", "Add Ids" },
   { RewriteOptions::kAddInstrumentation,
     "ai", "Add Instrumentation" },
   { RewriteOptions::kComputeStatistics,
@@ -774,8 +759,6 @@ const RewriteOptions::FilterEnumToIdAndNameEntry
     "ds", "Div Structure" },
   { RewriteOptions::kElideAttributes,
     "ea", "Elide Attributes" },
-  { RewriteOptions::kExperimentCollectMobImageInfo,
-    "xi", "Experiment: collect image info to help mobilization" },
   { RewriteOptions::kExperimentSpdy,
     "xs", "SPDY Resources Experiment" },
   { RewriteOptions::kExplicitCloseTags,
@@ -1226,13 +1209,6 @@ void RewriteOptions::AddProperties() {
       kQueryScope,
       "Number of bytes below which stylesheets will be inlined.", true);
   AddBaseProperty(
-      kDefaultGoogleFontCssInlineMaxBytes,
-      &RewriteOptions::google_font_css_inline_max_bytes_, "gfci",
-      kGoogleFontCssInlineMaxBytes,
-      kQueryScope,
-      "Number of bytes below which Google Font stylesheets will be inlined.",
-      true);
-  AddBaseProperty(
       kDefaultCssOutlineMinBytes,
       &RewriteOptions::css_outline_min_bytes_, "co",
       kCssOutlineMinBytes,
@@ -1462,13 +1438,6 @@ void RewriteOptions::AddProperties() {
       kLogBackgroundRewrite,
       kServerScope,
       NULL, false);  // TODO(huibao): write help & doc for mod_pagespeed.
-  AddBaseProperty(
-      false, &RewriteOptions::log_mobilization_samples_, "lms",
-      kLogMobilizationSamples,
-      kDirectoryScope,
-      "Verbose debugging of all sample data"
-      " generated by mobilization_label_filter.",
-      false);
   AddBaseProperty(
       false, &RewriteOptions::log_rewrite_timing_, "lr",
       kLogRewriteTiming,
@@ -1965,12 +1934,11 @@ void RewriteOptions::AddProperties() {
       "If set to true, addition instrumentation js is added to that page that "
       "the beacon can collect more information.", true);
   AddBaseProperty(
-      true, &RewriteOptions::use_experimental_js_minifier_, "uejsm",
+      false, &RewriteOptions::use_experimental_js_minifier_, "uejsm",
       kUseExperimentalJsMinifier,
       kDirectoryScope,
-      "If set to false, uses the old legacy::MinifyJs-based minifier. "
-      "This option will be deprecated once we do a successful release with the "
-      "new minifier.", true);
+      "If set to true, uses the new JsTokenizer-based minifier. This option "
+      "will be removed when that minifier has matured.", true);
   AddBaseProperty(
       kDefaultMaxCombinedCssBytes,
       &RewriteOptions::max_combined_css_bytes_, "xcc",
@@ -2200,30 +2168,6 @@ void RewriteOptions::AddProperties() {
       kOptionCookiesDurationMs,
       kDirectoryScope,
       "The max-age in ms of cookies that set PageSpeed options.", true);
-
-  AddBaseProperty(
-      false, &RewriteOptions::mob_always_, "malways", kAlwaysMobilize,
-      kQueryScope,
-      "(experimental) Unconditionally mobilize page regardless of user-agent.",
-      true);
-  AddBaseProperty(
-      false, &RewriteOptions::mob_call_button_, "mcall", kMobCallButton,
-      kQueryScope,
-      "(experimental) whether to add call button when mobilizing", true);
-  AddBaseProperty(
-      false, &RewriteOptions::mob_layout_, "mlayout", kMobLayout,
-      kQueryScope,
-      "(experimental) whether to run layout resynthesis when mobilizing", true);
-  AddBaseProperty(
-      false, &RewriteOptions::mob_nav_, "mnav", kMobNav,
-      kQueryScope,
-      "(experimental) whether to run navigation resynthesis when mobilizing",
-      true);
-  AddBaseProperty(
-      false, &RewriteOptions::mob_static_, "mstatic", kMobStatic,
-      kQueryScope,
-      "(experimental) whether to load discrete mobilization JS",
-      true);
 
   // Test-only, so no enum.
   AddRequestProperty(false,
@@ -2557,6 +2501,17 @@ void RewriteOptions::DisallowTroublesomeResources() {
   DisableLazyloadForClassName("*lazy*");
   DisableLazyloadForClassName("*nivo*");
   DisableLazyloadForClassName("*slider*");
+
+  // It is pretty well established that PSOL and the WordPress admin
+  // pages (wp-admin) don't work together.  Until we figure out why,
+  // black-list.
+  //
+  // http://snowulf.com/2013/03/06/
+  // wordpress-3-5-and-mod_pagespeed-does-not-play-well-together/
+  //
+  // TODO(jmarantz): Remove this blacklist once the source of the
+  // trouble is found and a more surgical workaround can be found.
+  Disallow("*/wp-admin/*");
 }
 
 // Note: this is not called by default in mod_pagespeed.
@@ -2765,7 +2720,6 @@ bool RewriteOptions::AdjustFiltersByCommaSeparatedList(
   bool non_incremental = names.empty();
   for (int i = 0, n = names.size(); i < n; ++i) {
     StringPiece& option = names[i];
-    TrimWhitespace(&option);
     if (!option.empty()) {
       if (option[0] == '-') {
         option.remove_prefix(1);
@@ -3034,7 +2988,7 @@ RewriteOptions::OptionSettingResult RewriteOptions::ParseAndSetOptionFromName1(
 
   // TODO(matterbury): use a hash map for faster lookup/switching.
   if (StringCaseEqual(name, kAllow)) {
-    Allow(arg);
+      Allow(arg);
   } else if (StringCaseEqual(name, kDisableFilters)) {
     if (!DisableFiltersByCommaSeparatedList(arg, handler)) {
       *msg = "Failed to disable some filters.";
@@ -3046,8 +3000,6 @@ RewriteOptions::OptionSettingResult RewriteOptions::ParseAndSetOptionFromName1(
     DistributeFiltersByCommaSeparatedList(arg, handler);
   } else if (StringCaseEqual(name, kDomain)) {
     WriteableDomainLawyer()->AddDomain(arg, handler);
-  } else if (StringCaseEqual(name, kProxySuffix)) {
-    WriteableDomainLawyer()->set_proxy_suffix(arg.as_string());
   } else if (StringCaseEqual(name, kDownstreamCachePurgeLocationPrefix)) {
     GoogleUrl gurl(arg);
     if (gurl.IsWebValid()) {
@@ -3258,7 +3210,7 @@ bool RewriteOptions::SetOptionFromNameAndLog(StringPiece name,
   if (result == kOptionOk) {
     return true;
   } else {
-    handler->MessageS(kWarning, msg);
+    handler->Message(kWarning, "%s", msg.c_str());
     return false;
   }
 }
@@ -3566,8 +3518,7 @@ void RewriteOptions::Merge(const RewriteOptions& src) {
   javascript_library_identification_.MergeOrShare(
       src.javascript_library_identification_);
   {
-    ScopedMutex this_lock(cache_purge_mutex_.get());
-    ScopedMutex src_lock(src.cache_purge_mutex_.get());
+    ScopedMutex lock(cache_purge_mutex_.get());
     purge_set_.MergeOrShare(src.purge_set_);
   }
 
@@ -3988,14 +3939,6 @@ GoogleString RewriteOptions::OptionsToString() const {
   return output;
 }
 
-GoogleString RewriteOptions::ExperimentSpec::QuoteHostPort(
-    const GoogleString& in) {
-  if (in.find(":") != GoogleString::npos) {
-    return StrCat("\"", in, "\"");
-  }
-  return in;
-}
-
 GoogleString RewriteOptions::ExperimentSpec::ToString() const {
   GoogleString out;
   StrAppend(&out, "id=", IntegerToString(id_));
@@ -4038,37 +3981,6 @@ GoogleString RewriteOptions::ExperimentSpec::ToString() const {
            e = filter_options_.end(); p != e; ++p) {
     StrAppend(&out, sep, p->first, "=", p->second);
     sep = ",";
-  }
-
-  if (matches_device_types_.get() != NULL) {
-    StrAppend(&out, ";matches_device_type=");
-    sep = "";
-    if ((*matches_device_types_)[UserAgentMatcher::kDesktop]) {
-      StrAppend(&out, sep, "desktop");
-      sep = ",";
-    }
-    if ((*matches_device_types_)[UserAgentMatcher::kTablet]) {
-      StrAppend(&out, sep, "tablet");
-      sep = ",";
-    }
-    if ((*matches_device_types_)[UserAgentMatcher::kMobile]) {
-      StrAppend(&out, sep, "mobile");
-      sep = ",";
-    }
-  }
-
-  for (AlternateOriginDomains::const_iterator i =
-           alternate_origin_domains_.begin();
-       i != alternate_origin_domains_.end(); ++i) {
-    const AlternateOriginDomainSpec& spec = *i;
-
-    StrAppend(&out, ";alternate_origin_domain=",
-              JoinCollection(spec.serving_domains, ","), ":",
-              QuoteHostPort(spec.origin_domain));
-
-    if (!spec.host_header.empty()) {
-      StrAppend(&out, ":", QuoteHostPort(spec.host_header));
-    }
   }
 
   return out;
@@ -4220,8 +4132,6 @@ bool RewriteOptions::SetupExperimentRewriters() {
   // Options were already checked during config parsing.
   NullMessageHandler null_message_handler;
   SetOptionsFromName(spec->filter_options(), &null_message_handler);
-  spec->ApplyAlternateOriginsToDomainLawyer(WriteableDomainLawyer(),
-                                            &null_message_handler);
   return true;
 }
 
@@ -4234,7 +4144,7 @@ void RewriteOptions::SetRequiredExperimentFilters() {
 }
 
 RewriteOptions::ExperimentSpec::ExperimentSpec(const StringPiece& spec,
-                                               const RewriteOptions* options,
+                                               RewriteOptions* options,
                                                MessageHandler* handler)
     : id_(experiment::kExperimentNotSet),
       ga_id_(options->ga_id()),
@@ -4268,13 +4178,6 @@ void RewriteOptions::ExperimentSpec::Merge(const ExperimentSpec& spec) {
   percent_ = spec.percent_;
   rewrite_level_ = spec.rewrite_level_;
   use_default_ = spec.use_default_;
-  if (spec.matches_device_types_.get() != NULL) {
-    matches_device_types_.reset(
-        new DeviceTypeBitSet(*spec.matches_device_types_));
-  }
-  if (!spec.alternate_origin_domains_.empty()) {
-    alternate_origin_domains_ = spec.alternate_origin_domains_;
-  }
 }
 
 RewriteOptions::ExperimentSpec* RewriteOptions::ExperimentSpec::Clone() {
@@ -4341,201 +4244,9 @@ void RewriteOptions::ExperimentSpec::Initialize(const StringPiece& spec,
       if (options.length() > 0) {
         AddCommaSeparatedListToOptionSet(options, &filter_options_, handler);
       }
-    } else if (StringCaseStartsWith(piece, "matches_device_type")) {
-      matches_device_types_.reset(new DeviceTypeBitSet());
-      ParseDeviceTypeBitSet(PieceAfterEquals(piece),
-                            matches_device_types_.get(), handler);
-    } else if (StringCaseStartsWith(piece, "alternate_origin_domain=")) {
-      alternate_origin_domains_.push_back(AlternateOriginDomainSpec());
-      if (!ParseAlternateOriginDomain(PieceAfterEquals(piece),
-                                      &alternate_origin_domains_.back(),
-                                      handler)) {
-        handler->Message(kWarning,
-                         "Ignorning invalid alternate_origin_domain: '%s'",
-                         piece.as_string().c_str());
-        alternate_origin_domains_.pop_back();
-      }
     } else {
       handler->Message(kWarning, "Skipping unknown experiment setting: %s",
                        piece.as_string().c_str());
-    }
-  }
-}
-
-void RewriteOptions::ExperimentSpec::CombineQuotedHostPort(
-    StringPieceVector* vec, size_t first_pos,
-    GoogleString* combined_container) {
-  if (first_pos + 1 >= vec->size()) {
-    return;
-  }
-
-  StringPiece& a = (*vec)[first_pos];
-  StringPiece& b = (*vec)[first_pos + 1];
-
-  if (a.starts_with("\"") && b.ends_with("\"")) {
-    a.remove_prefix(1);
-    b.remove_suffix(1);
-    *combined_container = a.as_string() + ":" + b.as_string();
-    (*vec)[first_pos] = StringPiece(*combined_container);
-    vec->erase(vec->begin() + first_pos + 1);
-  }
-}
-
-bool RewriteOptions::ExperimentSpec::LooksLikeValidHost(const StringPiece& s) {
-  // This will only return true if s is non-empty.
-  return s.find_first_not_of("1234567890") != GoogleString::npos;
-}
-
-bool RewriteOptions::ExperimentSpec::ParseAlternateOriginDomain(
-    const StringPiece& in, AlternateOriginDomainSpec* out,
-    MessageHandler* handler) {
-  // Input format: serving_domain[,...]:alt_origin_domain[:host_header]
-  // alt_origin_domain and host_header can include a port, in which case
-  // they must be quoted:
-  // serving_domain:"alt_origin_domain:port":"host_header:port"
-
-  StringPieceVector args_str;
-  SplitStringPieceToVector(in, ":", &args_str, false);
-
-  GoogleString ref_combined_container;
-  if (args_str.size() >= 3) {
-    CombineQuotedHostPort(&args_str, 1, &ref_combined_container);
-  }
-
-  GoogleString host_combined_container;
-  if (args_str.size() >= 4) {
-    CombineQuotedHostPort(&args_str, 2, &host_combined_container);
-  }
-
-  if (args_str.size() < 2 || args_str.size() > 3) {
-    handler->Message(
-        kWarning, "Incorrect number of arguments for alternate_origin_domain");
-    return false;
-  }
-
-  out->serving_domains.clear();
-  out->origin_domain = args_str[1].as_string();
-  if (args_str.size() > 2) {
-    out->host_header = args_str[2].as_string();
-  } else {
-    out->host_header.clear();
-  }
-
-  // We now attempt to configure a DomainLaywer with the supplied arguments.
-  // If there is a problem, we want to find out now (ie: parse time) and
-  // not when we later try and configure a DomainLawyer for real.
-  // We also check for non-numeric in the headers, since that's likely a stray
-  // port number and a valid hostname must contain a non-numeric.
-
-  DomainLawyer lawyer;
-  // origin_domain cannot be empty or the lawyer will be very unhappy.
-  if (!LooksLikeValidHost(out->origin_domain) ||
-      !lawyer.AddTwoProtocolOriginDomainMapping(out->origin_domain, "good.com",
-                                                "", handler)) {
-    handler->Message(kWarning, "Invalid origin domain: '%s'",
-                     out->origin_domain.c_str());
-    // This breaks *everything* else below, so we have to early exit.
-    return false;
-  }
-
-  lawyer.Clear();
-  if (!out->host_header.empty() &&
-      (!LooksLikeValidHost(out->host_header) ||
-       !lawyer.AddTwoProtocolOriginDomainMapping(out->origin_domain, "good.com",
-                                                 out->host_header, handler))) {
-    handler->Message(kWarning, "Invalid host header: '%s'",
-                     out->host_header.c_str());
-    return false;
-  }
-
-  StringPieceVector serving_domains;
-  SplitStringPieceToVector(args_str[0], ",", &serving_domains, true);
-
-  lawyer.Clear();
-
-  for (StringPieceVector::const_iterator i = serving_domains.begin();
-       i != serving_domains.end(); ++i) {
-    const StringPiece& serving_domain = *i;
-    if (LooksLikeValidHost(serving_domain) &&
-        lawyer.AddTwoProtocolOriginDomainMapping(
-            out->origin_domain, serving_domain, out->host_header, handler)) {
-      out->serving_domains.push_back(serving_domain.as_string());
-    } else {
-      handler->Message(kWarning, "Invalid serving domain: '%s'",
-                       serving_domain.as_string().c_str());
-    }
-  }
-
-  return !out->serving_domains.empty();
-}
-
-bool RewriteOptions::ExperimentSpec::ParseDeviceTypeBitSet(
-    const StringPiece& in, ExperimentSpec::DeviceTypeBitSet* out,
-    MessageHandler* handler) {
-  bool success = false;
-
-  StringPieceVector devices;
-  SplitStringPieceToVector(in, ",", &devices, true);
-
-  for (int i = 0, n = devices.size(); i < n; ++i) {
-    StringPiece device = devices[i];
-
-    UserAgentMatcher::DeviceType device_type =
-        UserAgentMatcher::kEndOfDeviceType;
-
-    if (device == "desktop") {
-      device_type = UserAgentMatcher::kDesktop;
-    } else if (device == "mobile") {
-      device_type = UserAgentMatcher::kMobile;
-    } else if (device == "tablet") {
-      device_type = UserAgentMatcher::kTablet;
-    }
-
-    if (device_type != UserAgentMatcher::kEndOfDeviceType) {
-      out->set(device_type, true);
-      success = true;
-    } else {
-      handler->Message(kWarning, "Skipping unknown device type: %s",
-                       device.as_string().c_str());
-    }
-  }
-
-  return success;
-}
-
-bool RewriteOptions::ExperimentSpec::matches_device_type(
-    UserAgentMatcher::DeviceType type) const {
-
-  // It would be nice to use matches_device_types_->size() for the second
-  // if clause. Unfortunately, matches_device_types_ might be NULL and
-  // size is not static, despite it being a template paramater.
-  if (type < 0 || type >= UserAgentMatcher::kEndOfDeviceType) {
-    LOG(DFATAL) << "DeviceType out of range: " << type;
-    return false;
-  }
-
-  // If no device_type filter has been specified, this will match all devices.
-  if (matches_device_types_.get() == NULL) {
-    return true;
-  }
-
-  return (*matches_device_types_)[type];
-}
-
-void RewriteOptions::ExperimentSpec::ApplyAlternateOriginsToDomainLawyer(
-    DomainLawyer* lawyer, MessageHandler* handler) const {
-  for (AlternateOriginDomains::const_iterator i =
-           alternate_origin_domains_.begin();
-       i != alternate_origin_domains_.end(); ++i) {
-    const AlternateOriginDomainSpec& alt_spec = *i;
-
-    for (StringVector::const_iterator j = alt_spec.serving_domains.begin();
-         j != alt_spec.serving_domains.end(); ++j) {
-      const GoogleString& serving_domain = *j;
-
-      lawyer->AddTwoProtocolOriginDomainMapping(alt_spec.origin_domain,
-                                                serving_domain,
-                                                alt_spec.host_header, handler);
     }
   }
 }
@@ -4741,5 +4452,6 @@ bool RewriteOptions::CacheFragmentOption::SetFromString(
   set(value.as_string());
   return true;
 }
+
 
 }  // namespace net_instaweb

@@ -34,51 +34,52 @@
 #include "base/logging.h"
 #include "net/instaweb/config/rewrite_options_manager.h"
 #include "net/instaweb/http/public/async_fetch.h"
+#include "net/instaweb/http/public/content_type.h"
 #include "net/instaweb/http/public/http_value.h"
-#include "net/instaweb/http/public/log_record.h"
 #include "net/instaweb/http/public/logging_proto_impl.h"
+#include "net/instaweb/http/public/log_record.h"
+#include "net/instaweb/http/public/meta_data.h"
 #include "net/instaweb/http/public/request_context.h"
+#include "net/instaweb/http/public/request_headers.h"
+#include "net/instaweb/http/public/response_headers.h"
 #include "net/instaweb/http/public/url_async_fetcher.h"
 #include "net/instaweb/rewriter/cached_result.pb.h"
 #include "net/instaweb/rewriter/public/output_resource.h"
 #include "net/instaweb/rewriter/public/resource.h"
+#include "net/instaweb/rewriter/public/server_context.h"
 #include "net/instaweb/rewriter/public/resource_namer.h"
 #include "net/instaweb/rewriter/public/resource_slot.h"
 #include "net/instaweb/rewriter/public/rewrite_driver.h"
 #include "net/instaweb/rewriter/public/rewrite_options.h"
 #include "net/instaweb/rewriter/public/rewrite_stats.h"
-#include "net/instaweb/rewriter/public/server_context.h"
 #include "net/instaweb/rewriter/public/url_namer.h"
-#include "pagespeed/kernel/base/abstract_mutex.h"
-#include "pagespeed/kernel/base/base64_util.h"
-#include "pagespeed/kernel/base/basictypes.h"
+#include "net/instaweb/util/public/abstract_mutex.h"
+#include "net/instaweb/util/public/base64_util.h"
+#include "net/instaweb/util/public/basictypes.h"
+#include "net/instaweb/util/public/cache_interface.h"
+#include "net/instaweb/util/public/data_url.h"
+#include "net/instaweb/util/public/dynamic_annotations.h"  // RunningOnValgrind
+#include "net/instaweb/util/public/file_system.h"
+#include "net/instaweb/util/public/function.h"
+#include "net/instaweb/util/public/google_url.h"
+#include "net/instaweb/util/public/hasher.h"
+#include "net/instaweb/util/public/message_handler.h"
+#include "net/instaweb/util/public/named_lock_manager.h"
+#include "net/instaweb/util/public/proto_util.h"
+#include "net/instaweb/util/public/queued_alarm.h"
+#include "net/instaweb/util/public/request_trace.h"
+#include "net/instaweb/util/public/scoped_ptr.h"
+#include "net/instaweb/util/public/shared_string.h"
+#include "net/instaweb/util/public/statistics.h"
+#include "net/instaweb/util/public/stl_util.h"
+#include "net/instaweb/util/public/string.h"
+#include "net/instaweb/util/public/string_util.h"
+#include "net/instaweb/util/public/thread_system.h"
+#include "net/instaweb/util/public/timer.h"
+#include "net/instaweb/util/public/url_segment_encoder.h"
+#include "net/instaweb/util/public/writer.h"
 #include "pagespeed/kernel/base/callback.h"
-#include "pagespeed/kernel/base/dynamic_annotations.h"  // RunningOnValgrind
-#include "pagespeed/kernel/base/file_system.h"
-#include "pagespeed/kernel/base/function.h"
-#include "pagespeed/kernel/base/hasher.h"
-#include "pagespeed/kernel/base/message_handler.h"
-#include "pagespeed/kernel/base/named_lock_manager.h"
-#include "pagespeed/kernel/base/proto_util.h"
-#include "pagespeed/kernel/base/request_trace.h"
-#include "pagespeed/kernel/base/scoped_ptr.h"
-#include "pagespeed/kernel/base/shared_string.h"
-#include "pagespeed/kernel/base/statistics.h"
-#include "pagespeed/kernel/base/stl_util.h"
-#include "pagespeed/kernel/base/string.h"
-#include "pagespeed/kernel/base/string_util.h"
-#include "pagespeed/kernel/base/thread_system.h"
-#include "pagespeed/kernel/base/timer.h"
-#include "pagespeed/kernel/base/writer.h"
-#include "pagespeed/kernel/cache/cache_interface.h"
-#include "pagespeed/kernel/http/content_type.h"
-#include "pagespeed/kernel/http/data_url.h"
-#include "pagespeed/kernel/http/google_url.h"
-#include "pagespeed/kernel/http/http_names.h"
-#include "pagespeed/kernel/http/request_headers.h"
-#include "pagespeed/kernel/http/response_headers.h"
-#include "pagespeed/kernel/thread/queued_alarm.h"
-#include "pagespeed/kernel/util/url_segment_encoder.h"
+#include "pagespeed/kernel/http/http_options.h"
 
 namespace net_instaweb {
 
@@ -143,7 +144,7 @@ class FreshenMetadataUpdateManager {
     if (partitions_.get() == NULL) {
       // Copy OutputPartitions lazily.
       OutputPartitions* cloned_partitions = new OutputPartitions;
-      *cloned_partitions = partitions;
+      cloned_partitions->CopyFrom(partitions);
       partitions_.reset(cloned_partitions);
     }
     num_pending_freshens_++;
@@ -456,7 +457,7 @@ class RewriteContext::OutputCacheCallback : public CacheInterface::Callback {
         return true;
     }
 
-    LOG(DFATAL) << "Corrupt InputInfo object !?";
+    DLOG(FATAL) << "Corrupt InputInfo object !?";
     return false;
   }
 
@@ -811,8 +812,7 @@ class RewriteContext::DistributedRewriteFetch : public AsyncFetch {
     RewriteOptionsManager* rewrite_options_manager =
         rewrite_context_->FindServerContext()->rewrite_options_manager();
     rewrite_options_manager->PrepareRequest(
-        rewrite_context_->Options(),
-        request_context(), &url_, request_headers(),
+        rewrite_context_->Options(), &url_, request_headers(),
         NewCallback(this, &DistributedRewriteFetch::StartFetch));
   }
 
@@ -965,7 +965,7 @@ class RewriteContext::FetchContext {
     ResourcePtr input(rewrite_context_->slot(0)->resource());
     handler_->Message(
         kInfo, "Deadline exceeded for rewrite of resource %s with %s.",
-        input->UrlForDebug().c_str(), rewrite_context_->id());
+        input->url().c_str(), rewrite_context_->id());
     FetchFallbackDoneImpl(input->contents(), input->response_headers());
   }
 
@@ -1050,7 +1050,7 @@ class RewriteContext::FetchContext {
           // html-derived rewrites.  We might also want to guard Rewrite-IPRO
           // as well.
           handler_->Message(kWarning, "Rewrite %s failed while fetching %s",
-                            input_resource->UrlForDebug().c_str(),
+                            input_resource->url().c_str(),
                             output_resource_->UrlEvenIfHashNotSet().c_str());
           // TODO(sligocki): Log variable for number of failed rewrites in
           // fetch path.
@@ -1069,10 +1069,11 @@ class RewriteContext::FetchContext {
           ok = rewrite_context_->SendFallbackResponse(
               original_output_url_, contents, async_fetch_, handler_);
         } else {
+          GoogleString url = input_resource->url();
           handler_->Warning(
               output_resource_->name().as_string().c_str(), 0,
               "Resource based on %s but cannot access the original",
-              input_resource->UrlForDebug().c_str());
+              url.c_str());
         }
       }
     }
@@ -1873,7 +1874,7 @@ void RewriteContext::RepeatedSuccess(const RewriteContext* primary) {
   if (primary->was_too_busy_) {
     MarkTooBusy();
   }
-  partitions_->CopyFrom(*primary->partitions_);
+  partitions_->CopyFrom(*primary->partitions_.get());
   for (int i = 0, n = primary->num_outputs(); i < n; ++i) {
     outputs_.push_back(primary->outputs_[i]);
     if ((outputs_[i].get() != NULL) && !outputs_[i]->loaded()) {
@@ -2239,7 +2240,7 @@ void RewriteContext::CheckAndAddOtherDependency(const InputInfo& input_info) {
   }
 
   InputInfo* dep = partitions_->add_other_dependency();
-  *dep = input_info;
+  dep->CopyFrom(input_info);
   // The input index here is with respect to the nested context's inputs,
   // so would not be interpretable at top-level, and we don't use it for
   // other_dependency entries anyway, so be both defensive and frugal
@@ -2452,8 +2453,10 @@ void RewriteContext::AttachDependentRequestTrace(const StringPiece& label) {
 
 void RewriteContext::TracePrintf(const char* fmt, ...) {
   RewriteDriver* driver = Driver();
-  if (driver->trace_context() == NULL ||
-      !driver->trace_context()->tracing_enabled()) {
+  if (driver->trace_context() == NULL) {
+    return;
+  }
+  if (!driver->trace_context()->tracing_enabled()) {
     return;
   }
   va_list argp;
@@ -2462,10 +2465,10 @@ void RewriteContext::TracePrintf(const char* fmt, ...) {
   StringAppendV(&buf, fmt, argp);
   va_end(argp);
   // Log in the root trace.
-  driver->trace_context()->TraceString(buf);
+  driver->trace_context()->TracePrintf("%s", buf.c_str());
   // Log to our context's request trace, if any.
   if (dependent_request_trace_ != NULL) {
-    dependent_request_trace_->TraceString(buf);
+    dependent_request_trace_->TracePrintf("%s", buf.c_str());
   }
 }
 
@@ -2663,7 +2666,7 @@ void RewriteContext::CheckAndFreshenResource(
       RewriteFreshenCallback* callback =
           new RewriteFreshenCallback(resource, partition_index, input_index,
                                      freshen_manager);
-      freshen_manager->IncrementFreshens(*partitions_);
+      freshen_manager->IncrementFreshens(*partitions_.get());
       resource->Freshen(callback, FindServerContext()->message_handler());
     } else {
       // TODO(nikhilmadan): We don't actually update the metadata when the
@@ -2768,7 +2771,7 @@ bool RewriteContext::DecodeFetchUrls(
       if (check_for_multiple_rewrites) {
         scoped_ptr<GoogleUrl> orig_based_url(
             new GoogleUrl(original_base, urls[i]));
-        if (FindServerContext()->IsPagespeedResource(*orig_based_url)) {
+        if (FindServerContext()->IsPagespeedResource(*orig_based_url.get())) {
           url = orig_based_url.release();
         }
       }
@@ -3124,11 +3127,7 @@ bool RewriteContext::IsNestedIn(StringPiece id) const {
   return parent_ != NULL && id == parent_->id();
 }
 
-GoogleString RewriteContext::ToString() const {
-  return ToStringWithPrefix("");
-}
-
-GoogleString RewriteContext::ToStringWithPrefix(StringPiece prefix) const {
+GoogleString RewriteContext::ToString(StringPiece prefix) const {
   GoogleString out;
   StrAppend(&out, prefix, "Outputs(", IntegerToString(num_outputs()), "):");
   for (int i = 0; i < num_outputs(); ++i) {

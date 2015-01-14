@@ -19,17 +19,16 @@
 #include <cstdlib>
 
 #include "net/instaweb/rewriter/public/javascript_library_identification.h"
-#include "pagespeed/kernel/base/basictypes.h"
-#include "pagespeed/kernel/base/file_message_handler.h"
-#include "pagespeed/kernel/base/file_system.h"
-#include "pagespeed/kernel/base/md5_hasher.h"
-#include "pagespeed/kernel/base/message_handler.h"
-#include "pagespeed/kernel/base/stdio_file_system.h"
-#include "pagespeed/kernel/base/string.h"
-#include "pagespeed/kernel/base/string_util.h"
+#include "net/instaweb/util/public/basictypes.h"
+#include "net/instaweb/util/public/file_message_handler.h"
+#include "net/instaweb/util/public/file_system.h"
+#include "net/instaweb/util/public/gflags.h"
+#include "net/instaweb/util/public/md5_hasher.h"
+#include "net/instaweb/util/public/message_handler.h"
+#include "net/instaweb/util/public/stdio_file_system.h"
+#include "net/instaweb/util/public/string.h"
+#include "net/instaweb/util/public/string_util.h"
 #include "pagespeed/kernel/js/js_minify.h"
-#include "pagespeed/kernel/js/js_tokenizer.h"
-#include "pagespeed/kernel/util/gflags.h"
 
 // Command-line javascript minifier and metadata printer.  Takes a single
 // javascript file as either standard input or a command-line argument, and by
@@ -47,8 +46,8 @@ DEFINE_bool(print_size_and_hash, false,
             "This yields results suitable for a "
             "ModPagespeedLibrary directive.");
 
-DEFINE_bool(use_experimental_minifier, true,
-            "Use the new JS minifier to minify the input instead "
+DEFINE_bool(use_experimental_minifier, false,
+            "Use the new experimental JS minifier to minify the input instead "
             "of the old one.");
 
 namespace {
@@ -60,9 +59,9 @@ bool JSMinifyMain(int argc, char** argv) {
     handler.Message(kError,
                     "Usage: \n"
                     "  js_minify [--print_size_and_hash] "
-                    "[--nouse_experimental_minifier] foo.js\n"
+                    "[--use_experimental_minifier] foo.js\n"
                     "  js_minify [--print_size_and_hash] "
-                    "[--nouse_experimental_minifier] < foo.js\n"
+                    "[--use_experimental_minifier] < foo.js\n"
                     "Without --print_size_and_hash prints minified foo.js\n"
                     "With --print_size_and_hash instead prints minified "
                     "size and content hash suitable for ModPagespeedLibrary\n");

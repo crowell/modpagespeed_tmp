@@ -26,7 +26,9 @@
 #include "net/instaweb/rewriter/public/resource_combiner.h"
 
 
+#include "net/instaweb/htmlparse/public/html_parse_test_base.h"
 #include "net/instaweb/http/public/async_fetch.h"
+#include "net/instaweb/http/public/content_type.h"
 #include "net/instaweb/rewriter/public/output_resource.h"
 #include "net/instaweb/rewriter/public/resource.h"
 #include "net/instaweb/rewriter/public/resource_namer.h"
@@ -34,23 +36,22 @@
 #include "net/instaweb/rewriter/public/rewrite_filter.h"
 #include "net/instaweb/rewriter/public/rewrite_options.h"
 #include "net/instaweb/rewriter/public/rewrite_test_base.h"
-#include "pagespeed/kernel/base/basictypes.h"
-#include "pagespeed/kernel/base/gtest.h"
-#include "pagespeed/kernel/base/hasher.h"
-#include "pagespeed/kernel/base/message_handler.h"
-#include "pagespeed/kernel/base/mock_message_handler.h"
-#include "pagespeed/kernel/base/ref_counted_ptr.h"
-#include "pagespeed/kernel/base/string.h"
-#include "pagespeed/kernel/base/string_util.h"
-#include "pagespeed/kernel/base/writer.h"
-#include "pagespeed/kernel/html/html_element.h"
-#include "pagespeed/kernel/html/html_parse_test_base.h"
-#include "pagespeed/kernel/http/content_type.h"
+#include "net/instaweb/util/public/basictypes.h"
+#include "net/instaweb/util/public/gtest.h"
+#include "net/instaweb/util/public/hasher.h"
+#include "net/instaweb/util/public/message_handler.h"
+#include "net/instaweb/util/public/mock_message_handler.h"
+#include "net/instaweb/util/public/ref_counted_ptr.h"
+#include "net/instaweb/util/public/string.h"
+#include "net/instaweb/util/public/string_util.h"
+#include "net/instaweb/util/public/url_multipart_encoder.h"
+#include "net/instaweb/util/public/writer.h"
 #include "pagespeed/kernel/http/response_headers.h"
-#include "pagespeed/kernel/util/url_multipart_encoder.h"
-#include "pagespeed/kernel/util/url_segment_encoder.h"
 
 namespace net_instaweb {
+
+class HtmlElement;
+class UrlSegmentEncoder;
 
 namespace {
 
@@ -79,7 +80,7 @@ class TestCombineFilter : public RewriteFilter {
    public:
     explicit TestCombiner(RewriteDriver* driver, RewriteFilter* filter)
         : ResourceCombiner(driver, kTestCombinerExt, filter) {
-    }
+    };
 
     // Provides the test access to the protected method so we can
     // directly test combining without setting up a complete filter
@@ -261,20 +262,20 @@ class ResourceCombinerTest : public RewriteTestBase {
 
     if (resource.get() == NULL) {
       // Resource is not creatable, and never will be.
-      handler->MessageS(kInfo, "Cannot combine: null resource");
+      handler->Message(kInfo, "Cannot combine: null resource");
       return ret;
     }
 
     if (!ReadIfCached(resource)) {
       // Resource is not cached, but may be soon.
-      handler->MessageS(kInfo, "Cannot combine: not cached");
+      handler->Message(kInfo, "Cannot combine: not cached");
       return ret;
     }
 
     if (!resource->HttpStatusOk()) {
       // Resource is not valid, but may be someday.
       // TODO(sligocki): Perhaps we should follow redirects.
-      handler->MessageS(kInfo, "Cannot combine: invalid contents");
+      handler->Message(kInfo, "Cannot combine: invalid contents");
       return ret;
     }
 
