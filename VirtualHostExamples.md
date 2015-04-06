@@ -1,0 +1,1 @@
+This page has moved to [developers.google.com](https://developers.google.com/speed/docs/mod_pagespeed/configuration#virtual-hosts).
